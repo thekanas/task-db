@@ -21,36 +21,33 @@ where (actual_departure - scheduled_departure) > interval '2 HOUR';
 -- 4.Найти последние 10 билетов, купленные в бизнес-классе (fare_conditions = 'Business'), с указанием имени пассажира и контактных данных
 select t.ticket_no, passenger_name, contact_data -> 'email' as email, contact_data -> 'phone' as phone
 from tickets t
-         join ticket_flights tf on t.ticket_no = tf.ticket_no
-where fare_conditions = 'Business'
-order by t.ticket_no desc
+         join ticket_flights tf on t.ticket_no = tf.ticket_no and fare_conditions = 'Business'
+         join bookings b on t.book_ref = b.book_ref
+group by t.ticket_no, b.book_date
+order by b.book_date desc
 limit 10;
 
 -- 5.Найти все рейсы, у которых нет забронированных мест в бизнес-классе (fare_conditions = 'Business')
 select f.flight_id, flight_no, scheduled_departure
 from flights f
-         join ticket_flights tf on f.flight_id = tf.flight_id
-where f.flight_id not in (
-    select flight_id
-    from ticket_flights tf
-    where fare_conditions = 'Business')
-group by f.flight_id
+         left join ticket_flights tf on f.flight_id = tf.flight_id and tf.fare_conditions = 'Business'
+where tf.ticket_no  is null
 order by f.flight_id;
 
 -- 6.Получить список аэропортов (airport_name) и городов (city), в которых есть рейсы с задержкой
-select airport_name -> 'ru', city -> 'ru'
+select airport_name -> 'ru' as airport, city -> 'ru' as  city
 from flights f
          join airports_data ad on f.departure_airport = ad.airport_code
-where (actual_departure - scheduled_departure) > interval '1 SECOND'
+where f.status = 'Delayed'
 group by airport_name, city
-order by city
+order by city;
 
 -- 7.Получить список аэропортов (airport_name) и количество рейсов, вылетающих из каждого аэропорта, отсортированный по убыванию количества рейсов
 select airport_name -> 'ru', count(*)
 from flights f
          join airports_data ad on f.departure_airport = ad.airport_code
 group by airport_name
-order by airport_name;
+order by count desc;
 
 -- 8.Найти все рейсы, у которых запланированное время прибытия (scheduled_arrival) было изменено и новое время прибытия (actual_arrival) не совпадает с запланированным
 select flight_id, scheduled_arrival, actual_arrival
@@ -76,9 +73,75 @@ where city in (
 order by city;
 
 -- 11.Найти пассажиров, у которых суммарная стоимость бронирований превышает среднюю сумму всех бронирований
+select passenger_name , sum(total_amount) as summa
+from tickets t
+         join bookings b on t.book_ref =b.book_ref
+group by passenger_name
+having sum(total_amount) > (select avg(total_amount)
+                            from bookings)
+order by passenger_name;
+
 -- 12.Найти ближайший вылетающий рейс из Екатеринбурга в Москву, на который еще не завершилась регистрация
+select *
+from flights f
+where departure_airport in
+      (select airport_code
+       from airports_data ad
+       where city ->> 'ru' = 'Екатеринбург')
+  and
+        arrival_airport  in
+        (select airport_code
+         from airports_data ad
+         where city ->> 'ru' = 'Москва')
+  and
+        status in ('Scheduled', 'On Time', 'Delayed')
+order by scheduled_departure
+limit 1;
+
 -- 13.Вывести самый дешевый и дорогой билет и стоимость (в одном результирующем ответе)
+(select ticket_no, amount
+ from ticket_flights
+ order by amount desc
+ limit 1)
+union
+(select ticket_no, amount
+ from ticket_flights
+ order by amount asc
+ limit 1);
+
 -- 14.Написать DDL таблицы Customers, должны быть поля id, firstName, LastName, email, phone. Добавить ограничения на поля (constraints)
+create table customers
+(
+    id        serial primary key,
+    firstName varchar(30) not null,
+    lastName  varchar(30) not null,
+    email     varchar(30) unique,
+    phone     varchar(30) unique
+);
+
 -- 15.Написать DDL таблицы Orders, должен быть id, customerId, quantity. Должен быть внешний ключ на таблицу customers + constraints
+create table orders
+(
+    id         bigserial primary key,
+    customerId integer references customers (id) on delete cascade,
+    quantity   integer not null check ( quantity >= 0 )
+);
+
 -- 16.Написать 5 insert в эти таблицы
+insert into customers (firstName, lastName, email, phone)
+values ('Yuriy', 'Pinchuk', 'email1@email.com', '+375291112233'),
+       ('Olga', 'Sugak', 'email2@email.com', '+375291112234'),
+       ('Yuliya', 'Dolgacheva', 'email3@email.com', '+375291112235'),
+       ('Petr', 'Eroshenko', 'email4@email.com', '+375291112236'),
+       ('Evgenii', 'Bazylev', 'email5@email.com', '+375291112237');
+
+insert into orders (customerId, quantity)
+values (1, 1),
+       (2, 3),
+       (3, 6),
+       (4, 8),
+       (5, 2);
+
 -- 17.Удалить таблицы
+drop table orders;
+drop table customers;
